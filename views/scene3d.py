@@ -3,7 +3,7 @@ from math import atan2, degrees, sin
 
 from ursina import Entity, Vec3, camera, clamp, color, held_keys, mouse, time, window
 from .config import C, HAUTEUR_OBSTACLE, TAILLE_BLOC
-from .Outils3d import (ajouter_boite, ajouter_plat, ajouter_ruban, maillage, rgb)
+from .outils3d import (ajouter_boite, ajouter_plat, ajouter_ruban, maillage, rgb)
 
 
 def hexcol(h):
