@@ -8,8 +8,21 @@ C = dict(fond="#0a1222", entete="#0c1528", panneau="#0f1a30", panneau2="#142240"
          grille="#1f3358", sol="#0e1c38", explore="#173a78", titre="#6ea0ff", selection="#2b57a8",
          chemin="#8ec1ff")
 
-ALGOS = {"A* (recommandé)": "astar", "Dijkstra": "dijkstra", "BFS": "bfs"}
-MODES = {"Obstacle": "obstacle", "Départ": "depart", "Destination": "destination"}
+ALGOS = {
+    "Auto (Dynamique)": "auto",
+    "Hybride / Personnalisé": "hybride",
+    "A* (recommandé)": "astar",
+    "Dijkstra": "dijkstra",
+    "BFS": "bfs",
+}
 
+# textes courts pour les boutons (les noms complets ne tiennent pas dans 1/3 du panneau)
+LIBELLES = {
+    "Auto (Dynamique)": "Auto",
+    "Hybride / Personnalisé": "Hybride",
+    "A* (recommandé)": "A*",
+    "Dijkstra": "Dijkstra",
+    "BFS": "BFS",
+}
 HAUTEUR_OBSTACLE = 1.8   # hauteur des cubes d'obstacle (1 case = 1 unité)
 TAILLE_BLOC = 25         # les obstacles sont regroupés en blocs de 25 x 25 cases (mise à jour rapide)

@@ -74,6 +74,11 @@ class Vue:
     def limite_texte(self): return self.ui.ent_limite.text.strip()
     def obstacles_aleatoires(self): return self.ui.aleatoire
     def vitesse(self): return self.ui.vitesse
+    def proba_obstacles(self):
+      return float(max(0.0, min(1.0, self.ui.proba)))
+
+    def nb_obstacles_dynamiques(self):
+      return max(1, int(self.ui.nb_obs))
 
     # ---------- boucle d'animation et saisie ----------
     def _image(self):
@@ -125,3 +130,5 @@ class Vue:
 
     def dessiner_trajet(self, chemin, position, destination):
         self.scene.dessiner_trajet(chemin, position, destination)
+    def afficher_info_temps(self, tm_ms, moyenne_ms, respecte):
+        self.ui.afficher_info_temps(tm_ms, moyenne_ms, respecte)

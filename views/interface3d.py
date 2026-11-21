@@ -1,6 +1,6 @@
 """Interface 2D superposée à la scène 3D : panneau de droite (boutons, algorithmes, statistiques...)."""
 from ursina import Button, Entity, InputField, Text, camera, color, mouse, window
-from .config import ALGOS, C, MODES
+from .config import ALGOS, C, LIBELLES, MODES
 
 
 def hexcol(h):
@@ -20,6 +20,36 @@ class Bloc(Entity):
             Text(parent=self, text=titre.upper(), x=0.012, y=-0.008, scale=0.62, color=hexcol(C["titre"]))
 
 
+class Curseur:
+    """Curseur horizontal : piste cliquable + poignée. (x, y) = coin haut-gauche dans le parent."""
+
+    def __init__(self, parent, x, y, largeur, mini, maxi, valeur, pas, on_change):
+        self.mini, self.maxi, self.pas, self.largeur = mini, maxi, pas, largeur
+        self.on_change = on_change
+        self.piste = Button(parent=parent, scale=(largeur, 0.014), position=(x + largeur / 2, y - 0.02, -0.1),
+                            color=hexcol(C["panneau2"]), highlight_color=hexcol(C["bordure"]),
+                            pressed_color=hexcol(C["bordure"]))
+        self.poignee = Entity(parent=parent, model="quad", scale=(0.014, 0.03), z=-0.2,
+                              color=hexcol(C["bleu"]), y=y - 0.02)
+        self.valeur = None
+        self.definir(valeur)
+
+    def definir(self, v):
+        """Borne la valeur, l'arrondit au pas, place la poignée et prévient l'interface."""
+        v = max(self.mini, min(self.maxi, v))
+        v = round(v / self.pas) * self.pas
+        self.valeur = max(self.mini, min(self.maxi, v))
+        t = (self.valeur - self.mini) / (self.maxi - self.mini)
+        self.poignee.x = self.piste.x - self.largeur / 2 + t * self.largeur
+        self.on_change(self.valeur)
+
+    def mettre_a_jour(self):
+        """À appeler à chaque image : suit la souris tant qu'elle appuie sur la piste."""
+        if mouse.left and mouse.hovered_entity is self.piste:
+            t = mouse.point[0] + 0.5
+            self.definir(self.mini + t * (self.maxi - self.mini))
+
+
 class Interface:
     LARGEUR = 0.36
 
@@ -31,6 +61,8 @@ class Interface:
         self.algo = "A* (recommandé)"
         self.optimal = True
         self.aleatoire = False
+        self.proba = 0.3        # probabilité qu'un événement ait lieu à chaque pas
+        self.nb_obs = 1         # nombre de cases modifiées par événement
         self.vitesse = 60
         self.aspect = None
         self.racine = Entity(parent=camera.ui)
@@ -72,7 +104,7 @@ class Interface:
         b = self._bloc(0.05, 1, fond=False)
         self.btn_niveau = {}
         for i in (1, 2, 3):
-            self.btn_niveau[i] = self._bouton(b, f"Niveau {i}", i * 0 + (i - 1) * (L / 3), 0, L / 3 - 0.006, 0.044,
+            self.btn_niveau[i] = self._bouton(b, f"Niveau {i}", (i - 1) * (L / 3), 0, L / 3 - 0.006, 0.044,
                                               lambda n=i: self.afficher_niveau(n))
 
         # --- simulation ---
@@ -99,30 +131,43 @@ class Interface:
         self.edition = b
         self._choisir_mode("Obstacle")
 
-        # --- algorithme (niveau 3) ---
-        b = self._bloc(0.135, 3, "Algorithme")
+        # --- algorithme (niveau 3) : 5 boutons sur 2 lignes + mode optimal + limite ---
+        b = self._bloc(0.17, 3, "Algorithme")
         self.btn_algo = {}
         w = (L - 0.03 - 0.012) / 3
         for i, nom in enumerate(ALGOS):
-            court = nom.replace(" (recommandé)", "")
-            self.btn_algo[nom] = self._bouton(b, court, 0.015 + i * (w + 0.006), -0.034, w, 0.04,
-                                              lambda n=nom: self._choisir_algo(n))
-        self.btn_optimal = self._bouton(b, "Mode optimal", 0.015, -0.082, 0.165, 0.04, self._basculer_optimal)
-        self._texte(b, "Limite (ms)", 0.195, -0.093, 0.6, "discret")
-        self.ent_limite = InputField(parent=b, scale=(0.075, 0.04), position=(L - 0.015 - 0.0375, -0.082 - 0.02),
-                                     default_value="", character_limit=7, limit_content_to="0123456789")
+            col, lig = i % 3, i // 3                      # colonne 0-2, ligne 0-1
+            self.btn_algo[nom] = self._bouton(b, LIBELLES.get(nom, nom),
+                                              0.015 + col * (w + 0.006), -0.034 - lig * 0.044,
+                                              w, 0.04, lambda n=nom: self._choisir_algo(n))
+        y3 = -0.034 - 2 * 0.044                           # 3e ligne, sous les 2 lignes de boutons
+        self.btn_optimal = self._bouton(b, "Mode optimal", 0.015, y3, 0.165, 0.04, self._basculer_optimal)
+        self._texte(b, "Limite (ms)", 0.195, y3 - 0.011, 0.6, "discret")
+        self.ent_limite = InputField(parent=b, scale=(0.075, 0.04), position=(L - 0.015 - 0.0375, y3 - 0.02),
+                                     default_value="", character_limit=7,
+                                     limit_content_to="0123456789.,")      # point et virgule autorisés
         self.ent_limite.z = -0.1
         self.ent_limite.color = hexcol(C["panneau2"])
         self._choisir_algo("A* (recommandé)")
         self._maj_optimal()
 
-        # --- obstacles dynamiques (niveau 2) ---
-        b = self._bloc(0.085, 2, "Niveaux 2 & 3 · Obstacles dynamiques")
+        # --- obstacles dynamiques (niveaux 2 et 3) ---
+        b = self._bloc(0.17, 2, "Niveaux 2 & 3 · Obstacles dynamiques")
         self.btn_alea = self._bouton(b, "Obstacles aléatoires", 0.015, -0.034, L - 0.03, 0.04, self._basculer_alea)
+
+        # curseur p : les textes sont créés AVANT le curseur (il appelle on_change à sa création)
+        self._texte(b, "Probabilité p", 0.015, -0.094, 0.6, "discret")
+        self.txt_proba = self._texte(b, "0,30", 0.30, -0.094, 0.65, "texte")
+        self.cur_proba = Curseur(b, 0.12, -0.082, 0.17, 0.0, 1.0, 0.3, 0.01, self._regler_proba)
+
+        # curseur : nombre de cases modifiées par événement
+        self._texte(b, "Nb par pas", 0.015, -0.134, 0.6, "discret")
+        self.txt_nb = self._texte(b, "1", 0.30, -0.134, 0.65, "texte")
+        self.cur_nb = Curseur(b, 0.12, -0.122, 0.17, 1, 30, 1, 1, self._regler_nb)
         self._maj_alea()
 
         # --- statistiques (niveau 3) ---
-        b = self._bloc(0.15, 3, "Performances (dernier résultat)")
+        b = self._bloc(0.21, 3, "Performances (dernier résultat)")
         self.txt_stats = {}
         w = (L - 0.03 - 0.008) / 2
         for i, (cle, lib) in enumerate((("longueur", "Longueur du chemin"), ("explorees", "Cases explorées"),
@@ -133,6 +178,14 @@ class Interface:
                    color=hexcol(C["panneau2"]))
             self._texte(b, lib, x + 0.008, y - 0.006, 0.55, "discret")
             self.txt_stats[cle] = self._texte(b, "–", x + 0.008, y - 0.022, 1.0, "texte")
+
+        # cellule pleine largeur : contrainte de temps T(m), moyenne et verdict
+        y = -0.034 - 2 * 0.057
+        Entity(parent=b, model="quad", scale=(L - 0.03, 0.052),
+               position=(0.015 + (L - 0.03) / 2, y - 0.026, 0.2), color=hexcol(C["panneau2"]))
+        self._texte(b, "Contrainte de temps", 0.023, y - 0.006, 0.55, "discret")
+        self.txt_temps = self._texte(b, "–", 0.023, y - 0.022, 0.7, "texte")
+        self.txt_verdict = self._texte(b, " ", 0.27, y - 0.022, 0.8, "vert")
 
         # --- comparaison (niveau 3) ---
         b = self._bloc(0.175, 3, "Comparaison")
@@ -188,8 +241,19 @@ class Interface:
         self._maj_alea()
 
     def _maj_alea(self):
-        self.btn_alea.text = "Obstacles aléatoires : " + ("activés" if self.aleatoire else "désactivés") + " (p = 0,3)"
+        etat = "activés" if self.aleatoire else "désactivés"
+        p = f"{self.proba:.2f}".replace(".", ",")
+        self.btn_alea.text = f"Obstacles aléatoires : {etat} (p = {p})"
         self._colorer(self.btn_alea, self.aleatoire)
+
+    def _regler_proba(self, v):
+        self.proba = round(v, 2)
+        self.txt_proba.text = f"{self.proba:.2f}".replace(".", ",")
+        self._maj_alea()                      # le texte du bouton affiche p en direct
+
+    def _regler_nb(self, v):
+        self.nb_obs = int(v)
+        self.txt_nb.text = str(self.nb_obs)
 
     def _maj_vitesse(self, v):
         self.vitesse = int(max(1, min(100, v)))
@@ -207,17 +271,25 @@ class Interface:
         self._disposer()
 
     def _disposer(self):
+        """Place les blocs les uns sous les autres ; nouvelle colonne à gauche s'il n'y a plus de place."""
         self.aspect = window.aspect_ratio
-        x = self.aspect / 2 - self.LARGEUR - 0.015
+        x0 = self.aspect / 2 - self.LARGEUR - 0.015      # x de la colonne la plus à droite
+        bas, haut = -0.47, 0.48                          # zone utile en hauteur
+        x, y, nb_col = x0, haut, 1
         self.racine.position = (0, 0)
-        self.fond.scale = (self.LARGEUR + 0.03, 1.2)
-        self.fond.position = (x + self.LARGEUR / 2, 0, 1)
-        y = 0.48
         for b in self.blocs:
             b.enabled = b.niveau <= self.niveau
-            if b.enabled:
-                b.position = (x, y)
-                y -= b.hauteur + 0.007
+            if not b.enabled:
+                continue
+            if y != haut and y - b.hauteur < bas:        # plus de place : nouvelle colonne à gauche
+                x -= self.LARGEUR + 0.015
+                y = haut
+                nb_col += 1
+            b.position = (x, y)
+            y -= b.hauteur + 0.007
+        largeur_fond = nb_col * (self.LARGEUR + 0.015) + 0.015
+        self.fond.scale = (largeur_fond, 1.2)
+        self.fond.position = (self.aspect / 2 - largeur_fond / 2, 0, 1)
         self.gauche.position = (-self.aspect / 2 + 0.02, 0.48)
         self.lbl_statut.position = (-self.aspect / 2 + 0.02, -0.48)
 
@@ -227,6 +299,8 @@ class Interface:
             self._disposer()
         if mouse.left and mouse.hovered_entity is self.piste:
             self._maj_vitesse(1 + (mouse.point[0] + 0.5) * 99)
+        self.cur_proba.mettre_a_jour()
+        self.cur_nb.mettre_a_jour()
 
     # ---------- affichage ----------
     def afficher_statut(self, texte, ok=True):
@@ -239,6 +313,15 @@ class Interface:
         self.txt_stats["explorees"].text = fmt(explorees)
         self.txt_stats["temps"].text = fmt(temps_ms, "{:.2f}")
         self.txt_stats["replans"].text = str(replanifications)
+
+    def afficher_info_temps(self, tm_ms, moyenne_ms, respecte):
+        """tm_ms = limite théorique T(m), moyenne_ms = temps moyen mesuré, respecte = bool."""
+        if tm_ms is None or moyenne_ms is None:
+            self.txt_temps.text, self.txt_verdict.text = "–", " "
+            return
+        self.txt_temps.text = f"T(m)={tm_ms:.1f} ms · Moy={moyenne_ms:.2f} ms"
+        self.txt_verdict.text = "OK" if respecte else "DÉPASSÉ"
+        self.txt_verdict.color = hexcol(C["vert"] if respecte else C["rouge"])
 
     def afficher_comparaison(self, lignes):
         for i in range(3):
