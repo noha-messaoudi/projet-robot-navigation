@@ -1,4 +1,4 @@
-"""Contrôleur : relie la vue (CustomTkinter) au modèle.
+"""Contrôleur : relie la vue au modèle.
 
 La vue ne connaît pas le modèle, le modèle ne connaît pas la vue :
 tout passe par ce fichier.
@@ -7,7 +7,7 @@ from model.modele import ModeleNavigation, ARRIVE, BLOQUE, REPLANIFIE
 
 
 class Controleur:
-    PROBA_OBSTACLE = 0.3   # probabilité d'un événement aléatoire avant chaque pas
+    PROBA_OBSTACLE = 0.3   # probabilité par défaut d'un événement aléatoire avant chaque pas
 
     def __init__(self, vue, lignes=100, colonnes=100):
         self.vue = vue
@@ -22,6 +22,7 @@ class Controleur:
                  pas=self.pas, reinitialiser=self.reinitialiser, effacer=self.effacer,
                  generer=self.generer, comparer=self.comparer, options=self.appliquer_options)
         self.appliquer_options()
+        self._afficher_info_temps()
         self._rafraichir_trajet()
 
     # ------------------------------------------------------------------
@@ -36,16 +37,40 @@ class Controleur:
         """Lit les réglages de la vue et les donne au modèle."""
         self.modele.choisir_algorithme(self.vue.algorithme_choisi())
         self.modele.mode_optimal = self.vue.mode_optimal()
-        texte = self.vue.limite_texte().replace(",", ".")
-        try:
-            ms = float(texte)
-            self.modele.limite_temps = ms / 1000 if ms > 0 else None
-        except ValueError:
-            self.modele.limite_temps = None   # champ vide ou invalide : pas de limite
+        texte = self.vue.limite_texte().strip().replace(",", ".")
+        if not texte:
+            self.modele.definir_limite_manuelle_ms(None)  # T(m) automatique
+        else:
+            try:
+                ms = float(texte)
+                self.modele.definir_limite_manuelle_ms(ms if ms > 0 else None)
+            except ValueError:
+                self.modele.definir_limite_manuelle_ms(None)
 
     def _delai(self):
         """Vitesse du curseur (1 à 100) -> délai entre deux pas en millisecondes."""
         return max(10, 1000 // max(1, self.vue.vitesse()))
+
+    # ------------------------------------------------------------------
+    # Suivi de la contrainte temporelle T(m) (source unique : self.modele)
+    # ------------------------------------------------------------------
+    def _afficher_info_temps(self):
+        """Affiche T(m), le temps moyen et si la limite est respectée."""
+        m = self.modele
+        tm = m.limite_tm_ms
+        moy = m.temps_moyen_ms()
+        ok = m.respecte_limite_moyenne()
+
+        if moy is None:
+            resume = f"T(m)={tm:.1f} ms | Moy=–"
+        else:
+            etat = "OK" if ok else "DÉPASSÉ"
+            resume = f"T(m)={tm:.1f} ms | Moy={moy:.2f} ms ({etat})"
+
+        if hasattr(self.vue, "afficher_info_temps"):
+            self.vue.afficher_info_temps(tm, moy, ok)
+        else:
+            self.vue.afficher_statut(resume, ok=(ok if ok is not None else True))
 
     # ------------------------------------------------------------------
     # Souris
@@ -134,6 +159,7 @@ class Controleur:
         self.vue.dessiner_explorees([])
         self.vue.afficher_stats(None, None, None, 0)
         self.vue.afficher_statut("Prêt")
+        self._afficher_info_temps()
         self._rafraichir_trajet()
 
     def effacer(self):
@@ -159,8 +185,18 @@ class Controleur:
         """Un pas d'animation, puis programmation du suivant."""
         self.timer = None
         if self.vue.obstacles_aleatoires():
-            case = self.modele.evenement_aleatoire(self.PROBA_OBSTACLE)
-            if case is not None:
+            proba = (
+                self.vue.proba_obstacles()
+                if hasattr(self.vue, "proba_obstacles")
+                else self.PROBA_OBSTACLE
+            )
+            nb = (
+                self.vue.nb_obstacles_dynamiques()
+                if hasattr(self.vue, "nb_obstacles_dynamiques")
+                else 5
+            )
+            cases = self.modele.evenement_aleatoire(proba, nb_obstacles=nb, cibler_chemin=True)
+            for case in cases:
                 if case in self.modele.grille.obstacles:
                     self.vue.poser_obstacle(case)
                 else:
@@ -203,4 +239,5 @@ class Controleur:
                 self._dernier_dessine = res
             self.vue.afficher_stats(res.longueur, res.cases_explorees,
                                     res.temps * 1000, m.nb_replanifications)
+            self._afficher_info_temps()
         self._rafraichir_trajet()
