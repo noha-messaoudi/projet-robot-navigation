@@ -24,5 +24,10 @@ LIBELLES = {
     "Dijkstra": "Dijkstra",
     "BFS": "BFS",
 }
+MODES = {
+    "Obstacle": "obstacle",
+    "Départ": "depart",
+    "Destination": "destination",
+}
 HAUTEUR_OBSTACLE = 1.8   # hauteur des cubes d'obstacle (1 case = 1 unité)
 TAILLE_BLOC = 25         # les obstacles sont regroupés en blocs de 25 x 25 cases (mise à jour rapide)
